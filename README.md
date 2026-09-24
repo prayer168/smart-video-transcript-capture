@@ -4,6 +4,11 @@
 
 這是一套不需要 OpenAI API Key 的 Windows 桌面 App。影片下載、音訊切割、語音辨識與摘要大綱都在本機執行，適合處理本機影片，以及可由 `yt-dlp` 公開擷取的影音網址。
 
+## 下載 Windows 安裝檔
+
+- [Smart-Video-Transcript-Setup-0.2.0.exe](https://github.com/prayer168/smart-video-transcript-capture/releases/download/v0.2.0/Smart-Video-Transcript-Setup-0.2.0.exe)
+- [v0.2.0 Release 頁面](https://github.com/prayer168/smart-video-transcript-capture/releases/tag/v0.2.0)
+
 ## 主要功能
 
 - 貼上 YouTube、部分 Facebook、短影音與其他 `yt-dlp` 支援的公開影音網址
