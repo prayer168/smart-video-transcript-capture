@@ -6,7 +6,8 @@
 
 ## 線上版本
 
-- Web App：<https://smart-video-transcript.prayer168.chatgpt.site/>
+- Web App（GitHub Pages）：<https://prayer168.github.io/smart-video-transcript-capture/>
+- 原 Sites 預覽：<https://smart-video-transcript.prayer168.chatgpt.site/>
 - GitHub：<https://github.com/prayer168/smart-video-transcript-capture>
 
 ## 功能
