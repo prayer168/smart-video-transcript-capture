@@ -15,7 +15,7 @@ const result = spawnSync(binary, args, { encoding: "utf8", timeout: 180000, maxB
 if (result.error) throw result.error;
 assert.equal(result.status, 0, result.stderr);
 const parsed = extractCandidates(result.stdout, records.length);
-assert.ok(parsed, `Model output was not valid JSON: ${result.stdout.slice(0, 500)}`);
+assert.ok(parsed, `Model output was not valid JSON. stdout: ${result.stdout.slice(0, 6000)}\nstderr: ${result.stderr.slice(-2000)}`);
 const corrected = applyCorrection(records, result.stdout);
 assert.deepEqual(corrected.map(item => item.start), [0, 3]);
 assert.match(corrected[0].text, /12/);
