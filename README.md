@@ -1,13 +1,13 @@
 # 智慧影片逐字稿（Smart Video Transcript Capture）
 
-版本：**v0.2.0**（Windows Desktop MVP）
+版本：**v0.3.0**（Windows Desktop）
 
 這是一套不需要 OpenAI API Key 的 Windows 桌面 App。影片下載、音訊切割、語音辨識與摘要大綱都在本機執行，適合處理本機影片，以及可由 `yt-dlp` 公開擷取的影音網址。
 
 ## 下載 Windows 安裝檔
 
-- [Smart-Video-Transcript-Setup-0.2.0.exe](https://github.com/prayer168/smart-video-transcript-capture/releases/download/v0.2.0/Smart-Video-Transcript-Setup-0.2.0.exe)
-- [v0.2.0 Release 頁面](https://github.com/prayer168/smart-video-transcript-capture/releases/tag/v0.2.0)
+- [Smart-Video-Transcript-Setup-0.3.0.exe](https://github.com/prayer168/smart-video-transcript-capture/releases/download/v0.3.0/Smart-Video-Transcript-Setup-0.3.0.exe)
+- [v0.3.0 Release 頁面](https://github.com/prayer168/smart-video-transcript-capture/releases/tag/v0.3.0)
 
 ## 主要功能
 
@@ -18,8 +18,9 @@
 - Tiny、Base、Small、Medium 模型選擇
 - 長影片逐段處理、進度顯示、失敗重試與中斷後繼續
 - 時間戳記、逐字稿、摘要、章節大綱與關鍵字
+- 可選本機逐字稿校正：針對明顯誤辨字詞與少量語助詞逐段修正；保留原文切換檢視
 - 匯出 TXT、Markdown、SRT、VTT、JSON
-- Windows 安裝程式 `setup.exe`
+- Windows 安裝程式 `setup.exe`，含透明背景桌面捷徑圖示
 
 ## 系統架構
 
@@ -31,6 +32,8 @@ Windows Desktop App（Electron）
 FFmpeg：取得長度、轉 WAV、切割音訊
         ↓
 Whisper.cpp：本機語音辨識
+        ↓
+可選 llama.cpp + Qwen3 0.6B：逐字稿校正（保留原文與時間戳記）
         ↓
 逐字稿合併、時間戳記、摘要大綱與匯出
 ```
@@ -51,6 +54,7 @@ npm start
 - `yt-dlp.exe`
 - Whisper.cpp Windows 執行檔
 - 選定的 Whisper 模型
+- 勾選「逐字稿校正」時，下載 llama.cpp 與約 484 MB 的本機校正模型
 
 下載完成後，語音辨識可在本機離線執行。模型大小與準確度取捨如下：
 
@@ -67,7 +71,7 @@ npm start
 npm run dist
 ```
 
-輸出檔會放在 `release/Smart-Video-Transcript-Setup-0.2.0.exe`。
+輸出檔會放在 `release/Smart-Video-Transcript-Setup-0.3.0.exe`。安裝時會建立具有專用圖示的桌面捷徑。
 
 ## 網址擷取限制
 
@@ -88,12 +92,14 @@ npm run dist
 - 本機 Whisper 模型與暫存音訊放在 Windows 使用者資料夾
 - 下載來源網址時，影片會先暫存於本機，再分段處理
 - 完成或取消工作後，App 會清理大部分暫存片段
+- 校正模型只修改逐字稿文字，原始辨識結果保存在每一段的 `rawText`，時間戳記不會更動；若改動過大或數字變動，該段會保留原文
 
 ## 目前限制
 
 - 說話者辨識介面已保留，但完整聲紋分離仍需整合本機 diarization 模型。
 - 背景音樂、噪音與多人重疊說話會降低辨識準確度。
 - 摘要與大綱目前使用本機規則生成，不是大型語言模型生成。
+- 逐字稿校正是小型本機模型，可能漏掉錯字或誤判；請用「查看辨識原文」比對重要內容。
 - GitHub Pages 版本只保留介面預覽；完整本機辨識功能請使用 Windows `setup.exe`。
 
 ## 專案結構
@@ -105,7 +111,11 @@ npm run dist
 ├── package.json             # Electron 與 setup.exe 打包設定
 ├── electron/
 │   ├── main.cjs             # 本機下載、FFmpeg、Whisper 與 IPC
+│   ├── correction.cjs       # 逐字稿校正與保守改動檢查
 │   └── preload.cjs          # 安全的 Renderer／主程序橋接
+├── assets/
+│   ├── app-icon.png         # 去背圖示原圖
+│   └── app-icon.ico         # Windows 安裝檔與桌面捷徑圖示
 ├── dist/
 │   ├── index.html           # App 介面
 │   ├── app.js               # 互動、進度、結果與匯出
@@ -117,5 +127,6 @@ npm run dist
 
 本專案採用語意化版本號：`主版本.次版本.修訂版本`。
 
+- `0.3.0`：加入透明桌面圖示、主介面版權與來源說明、本機逐字稿校正及原文比對。
 - `0.2.0`：改為 Windows Electron 桌面 App，加入 yt-dlp、FFmpeg、本機 Whisper 與 `setup.exe` 打包流程。
 - `0.1.0`：原始瀏覽器版影片匯入、分段、逐字稿、摘要大綱與匯出 MVP。

@@ -1,0 +1,46 @@
+.result-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.result-actions .small-ghost {
+  white-space: nowrap;
+}
+
+.transcript-line.corrected .transcript-text::after {
+  content: "已校正";
+  display: inline-block;
+  margin-left: 9px;
+  padding: 1px 6px;
+  border: 1px solid rgba(40, 215, 194, .35);
+  border-radius: 6px;
+  color: var(--teal);
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+.footer-note {
+  align-items: flex-start;
+}
+
+.footer-details {
+  max-width: 600px;
+  text-align: right;
+}
+
+.footer-details p {
+  margin: 0 0 5px;
+  white-space: normal;
+}
+
+.footer-details p:last-child {
+  color: #aec1d0;
+}
+
+@media (max-width: 720px) {
+  .footer-details { text-align: left; }
+  .result-actions { justify-content: flex-start; }
+}

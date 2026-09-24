@@ -7,14 +7,19 @@ const crypto = require("node:crypto");
 const https = require("node:https");
 const { spawn } = require("node:child_process");
 const extract = require("extract-zip");
+const { promptFor, schemaFor, applyCorrection } = require("./correction.cjs");
 const ffmpegPackagePath = require("ffmpeg-static");
 const ffprobePackagePath = require("ffprobe-static").path;
 
-const RUNTIME_VERSION = "0.2.0";
 const WHISPER_VERSION = "v1.8.3";
 const WHISPER_ZIP_URL = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/whisper-bin-x64.zip`;
+const WHISPER_ZIP_SHA256 = "d824b1e37599f882b396e73f1ee0bfd5d0529f700314c48311dcbd00b803321d";
 const YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 const MODEL_BASE_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+const LLAMA_ZIP_URL = "https://github.com/ggml-org/llama.cpp/releases/download/b11149/llama-b11149-bin-win-cpu-x64.zip";
+const LLAMA_ZIP_SHA256 = "d1cb5f9ef7bbb7068954b4c9767d5b5309e20bcefeb61d4aafc47f9581f38752";
+const CORRECTION_MODEL_URL = "https://huggingface.co/QuantFactory/Qwen3-0.6B-GGUF/resolve/e7e05d713acaa2baccdfb52e967eaba8ba562ba8/Qwen3-0.6B.Q4_K_M.gguf";
+const CORRECTION_MODEL_SHA256 = "7af3fdf842f87b24672f8a7f1dd50404043f0bfb71093ff91c31d2b49df4631d";
 const jobs = new Map();
 
 function unpackedPath(value) {
@@ -40,7 +45,7 @@ function ensureDir(target) {
 function downloadFile(url, target, onProgress = () => {}) {
   return new Promise((resolve, reject) => {
     const temp = `${target}.download`;
-    const request = https.get(url, { headers: { "User-Agent": "SmartVideoTranscript/0.2.0" } }, response => {
+    const request = https.get(url, { headers: { "User-Agent": "SmartVideoTranscript/0.3.0" } }, response => {
       if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
         response.resume();
         downloadFile(response.headers.location, target, onProgress).then(resolve, reject);
@@ -121,14 +126,60 @@ async function findWhisperBinary(root) {
   return null;
 }
 
+async function sha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const input = fs.createReadStream(filePath);
+    input.on("data", chunk => hash.update(chunk));
+    input.on("error", reject);
+    input.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function ensureVerifiedDownload(url, target, digest, event, label, phase = "correction") {
+  await ensureDir(path.dirname(target));
+  if (fs.existsSync(target) && await sha256(target) === digest) return target;
+  if (fs.existsSync(target)) await fsp.rm(target, { force: true });
+  sendProgress(event, { phase, message: `首次使用：下載${label}…`, progress: 3 });
+  await downloadFile(url, target, ratio => sendProgress(event, { phase, message: `下載${label}…`, progress: 3 + ratio * 12 }));
+  if (await sha256(target) !== digest) {
+    await fsp.rm(target, { force: true });
+    throw new Error(`${label}下載校驗失敗，請重試。`);
+  }
+  return target;
+}
+
+async function findExecutable(root, filename) {
+  for (const entry of await fsp.readdir(root, { withFileTypes: true })) {
+    const target = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      const nested = await findExecutable(target, filename);
+      if (nested) return nested;
+    } else if (entry.name.toLowerCase() === filename) return target;
+  }
+  return null;
+}
+
+async function ensureCorrectionEngine(event) {
+  const dir = path.join(runtimeDir(), "llama-b11149");
+  await ensureDir(dir);
+  let binary = await findExecutable(dir, "llama-cli.exe");
+  if (!binary) {
+    const archive = await ensureVerifiedDownload(LLAMA_ZIP_URL, path.join(runtimeDir(), "llama-b11149.zip"), LLAMA_ZIP_SHA256, event, "本機校正引擎");
+    await extract(archive, { dir });
+    binary = await findExecutable(dir, "llama-cli.exe");
+  }
+  if (!binary) throw new Error("本機校正引擎安裝不完整。");
+  const model = await ensureVerifiedDownload(CORRECTION_MODEL_URL, path.join(runtimeDir(), "models", "Qwen3-0.6B.Q4_K_M.gguf"), CORRECTION_MODEL_SHA256, event, "逐字稿校正模型（約 484 MB）");
+  return { binary, model };
+}
+
 async function ensureWhisper(event) {
   const dir = path.join(runtimeDir(), "whisper");
   await ensureDir(dir);
   let binary = await findWhisperBinary(dir);
   if (!binary) {
-    const zip = path.join(runtimeDir(), "whisper-bin.zip");
-    sendProgress(event, { phase: "runtime", message: "首次啟動：下載本機 Whisper 引擎…", progress: 20 });
-    await downloadFile(WHISPER_ZIP_URL, zip, progress => sendProgress(event, { phase: "runtime", message: "下載 Whisper 引擎…", progress: 20 + progress * 25 }));
+    const zip = await ensureVerifiedDownload(WHISPER_ZIP_URL, path.join(runtimeDir(), "whisper-bin.zip"), WHISPER_ZIP_SHA256, event, "本機 Whisper 引擎", "runtime");
     await extract(zip, { dir });
     await fsp.rm(zip, { force: true });
     binary = await findWhisperBinary(dir);
@@ -246,13 +297,15 @@ async function processTranscription(event, options) {
     workingDir = path.join(os.tmpdir(), `smart-video-transcript-${id}`);
     await ensureDir(workingDir);
     const total = Math.ceil(duration / chunkSeconds);
-    const records = [];
-    for (let index = 0; index < total; index += 1) {
+    const resumeIndex = Math.max(0, Math.min(total, Number(options.resumeIndex) || 0));
+    const records = resumeIndex > 0 && Array.isArray(options.resumeRecords) ? options.resumeRecords.filter(record => Number(record.start) < resumeIndex * chunkSeconds) : [];
+    for (let index = resumeIndex; index < total; index += 1) {
       if (job.cancelled) throw new Error("使用者停止處理；目前進度已保留。");
       const start = index * chunkSeconds;
       const length = Math.min(chunkSeconds, duration - start);
       const chunkPath = path.join(workingDir, `chunk-${String(index).padStart(5, "0")}.wav`);
       let lastError;
+      let succeeded = false;
       for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
           sendProgress(event, { jobId: id, phase: "audio", message: `擷取片段 ${index + 1}/${total}…`, progress: 78 * index / total, index, total, start, duration });
@@ -260,6 +313,7 @@ async function processTranscription(event, options) {
           sendProgress(event, { jobId: id, phase: "transcribe", message: `辨識片段 ${index + 1}/${total}…`, progress: 78 * index / total + 18, index, total, start, duration, attempt });
           const chunkRecords = await transcribeChunk(binary, model.path, chunkPath, start, length, options, job);
           records.push(...chunkRecords);
+          succeeded = true;
           break;
         } catch (error) {
           lastError = error;
@@ -267,8 +321,9 @@ async function processTranscription(event, options) {
           if (attempt < retries) sendProgress(event, { jobId: id, phase: "retry", message: `片段 ${index + 1} 失敗，正在重試（${attempt + 1}/${retries}）…`, progress: 78 * index / total + 18, index, total, attempt });
         }
       }
-      if (lastError && !records.some(record => record.start >= start && record.start < start + length)) throw lastError;
+      if (!succeeded) throw lastError;
       await fsp.rm(chunkPath, { force: true });
+      sendProgress(event, { jobId: id, phase: "chunk-complete", message: `已完成片段 ${index + 1}/${total}`, progress: 15 + 75 * (index + 1) / total, index: index + 1, total, duration, records: records.slice() });
     }
     records.sort((a, b) => a.start - b.start);
     sendProgress(event, { jobId: id, phase: "done", message: "本機逐字稿完成", progress: 100, index: total, total, duration });
@@ -279,6 +334,34 @@ async function processTranscription(event, options) {
   }
 }
 
+async function correctTranscript(event, options) {
+  if (!Array.isArray(options?.records)) throw new Error("沒有可校正的逐字稿。");
+  const id = crypto.randomUUID();
+  const job = { id, children: new Set(), cancelled: false };
+  jobs.set(id, job);
+  try {
+    const { binary, model } = await ensureCorrectionEngine(event);
+    const records = options.records.map(record => ({ ...record, rawText: record.rawText || record.text }));
+    const batchSize = 4;
+    for (let index = 0; index < records.length; index += batchSize) {
+      if (job.cancelled) throw new Error("使用者停止校正。");
+      const slice = records.slice(index, index + batchSize);
+      sendProgress(event, { jobId: id, phase: "correction", message: `正在校正逐字稿 ${Math.min(index + batchSize, records.length)}/${records.length}…`, progress: 15 + 80 * index / Math.max(1, records.length), index, total: records.length });
+      try {
+        const result = await runCommand(binary, ["-m", model, "-cnv", "--simple-io", "--single-turn", "--no-display-prompt", "--no-warmup", "--no-show-timings", "-n", "1024", "-c", "4096", "--temp", "0.1", "--json-schema", JSON.stringify(schemaFor(slice.length)), "-p", promptFor(slice)], { job });
+        records.splice(index, slice.length, ...applyCorrection(slice, result.stdout));
+      } catch (error) {
+        if (job.cancelled) throw error;
+        sendProgress(event, { jobId: id, phase: "correction-warning", message: `第 ${Math.floor(index / batchSize) + 1} 批校正未成功，保留原文。`, progress: 15 + 80 * index / Math.max(1, records.length) });
+      }
+    }
+    sendProgress(event, { jobId: id, phase: "correction-done", message: "逐字稿校正完成", progress: 100 });
+    return { jobId: id, records, correctedCount: records.filter(record => record.corrected).length };
+  } finally {
+    jobs.delete(id);
+  }
+}
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1500,
@@ -286,6 +369,7 @@ function createWindow() {
     minWidth: 1050,
     minHeight: 720,
     backgroundColor: "#07111f",
+    icon: path.join(__dirname, "..", "assets", "app-icon.ico"),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
   });
   window.loadFile(path.join(__dirname, "..", "dist", "index.html"));
@@ -298,6 +382,7 @@ app.whenReady().then(() => {
     throw new Error("沒有可檢查的來源。");
   });
   ipcMain.handle("transcribe-source", (event, options) => processTranscription(event, options));
+  ipcMain.handle("correct-transcript", (event, options) => correctTranscript(event, options));
   ipcMain.handle("cancel-transcription", async (_event, jobId) => {
     const job = jobs.get(jobId);
     if (!job) return false;

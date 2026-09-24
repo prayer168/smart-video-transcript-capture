@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#07111f" />
   <meta name="description" content="將影片轉成帶時間戳記的逐字稿、摘要與章節大綱。" />
-  <meta name="application-version" content="0.1.0" />
+  <meta name="application-version" content="0.3.0" />
+  <link rel="icon" type="image/png" href="../assets/app-icon.png" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2307111f'/%3E%3Cpath d='M18 20h28v24H18z' fill='%2328d7c2' opacity='.18' stroke='%2328d7c2' stroke-width='3'/%3E%3Cpath d='M27 28l13 8-13 8z' fill='%2328d7c2'/%3E%3Cpath d='M15 51h34' stroke='%23a78bfa' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./desktop.css" />
   <style>[hidden]{display:none!important}</style>
   <title>智慧影片逐字稿</title>
 </head>
@@ -55,7 +57,7 @@
           <div class="source-view" data-source-view="url">
             <label class="field-label" for="videoUrl">影片網址</label>
             <input id="videoUrl" class="text-input" type="url" placeholder="https://example.com/video.mp4" autocomplete="off" />
-            <p class="field-help">目前支援可直接播放或下載的影片檔網址。YouTube／一般網頁頁面網址需接後端下載器。</p>
+            <p class="field-help">Windows 安裝版可分析公開 YouTube、部分 Facebook、短影音與直接影片網址；實際可用性取決於來源網站。</p>
             <button id="loadUrlBtn" class="secondary-btn full-width" type="button">載入網址影片</button>
           </div>
           <div id="fileMeta" class="file-meta empty">尚未選擇影片</div>
@@ -93,6 +95,7 @@
             <div class="field-group"><label class="field-label" for="retryCount">失敗重試</label><input id="retryCount" class="text-input" type="number" min="0" max="5" value="3" /></div>
           </div>
           <label class="toggle-row"><input id="speakerDiarization" type="checkbox" /><span class="toggle-ui"></span><span><strong>說話者辨識</strong><small>標示 Speaker 1、Speaker 2</small></span></label>
+          <label class="toggle-row"><input id="correctTranscript" type="checkbox" checked /><span class="toggle-ui"></span><span><strong>逐字稿校正</strong><small>本機修正明顯錯字、英文詞與少量語助詞；保留原文</small></span></label>
           <label class="toggle-row"><input id="generateOutline" type="checkbox" checked /><span class="toggle-ui"></span><span><strong>產生摘要與大綱</strong><small>整理章節、關鍵字與教學重點</small></span></label>
           <div class="action-row"><button id="startBtn" class="primary-btn" type="button" disabled>開始處理 <span>↗</span></button><button id="stopBtn" class="stop-btn" type="button" disabled>停止</button></div>
           <div id="resumeCard" class="resume-card" hidden><div><strong>找到未完成工作</strong><p id="resumeText">可以從上次完成的片段繼續。</p></div><div class="resume-actions"><button id="resumeBtn" class="small-primary" type="button">繼續</button><button id="clearResumeBtn" class="small-ghost" type="button">清除</button></div></div>
@@ -114,7 +117,7 @@
         </section>
 
         <section class="panel results-panel">
-          <div class="panel-heading result-heading"><div><p class="eyebrow">04 / RESULTS</p><h3>整理結果</h3></div><div id="downloadGroup" class="download-group" hidden><button class="download-btn" data-download="txt">TXT</button><button class="download-btn" data-download="md">MD</button><button class="download-btn" data-download="srt">SRT</button><button class="download-btn" data-download="vtt">VTT</button><button class="download-btn" data-download="json">JSON</button></div></div>
+          <div class="panel-heading result-heading"><div><p class="eyebrow">04 / RESULTS</p><h3>整理結果</h3></div><div class="result-actions"><button id="toggleRawBtn" class="small-ghost" type="button" hidden>查看辨識原文</button><div id="downloadGroup" class="download-group" hidden><button class="download-btn" data-download="txt">TXT</button><button class="download-btn" data-download="md">MD</button><button class="download-btn" data-download="srt">SRT</button><button class="download-btn" data-download="vtt">VTT</button><button class="download-btn" data-download="json">JSON</button></div></div></div>
           <div class="result-tabs" role="tablist" aria-label="結果分頁">
             <button class="result-tab active" type="button" data-result-tab="transcript">逐字稿 <span id="transcriptCount">0 段</span></button>
             <button class="result-tab" type="button" data-result-tab="summary">摘要</button>
@@ -128,7 +131,7 @@
         </section>
       </section>
     </div>
-    <footer class="footer-note"><span>提示：桌面版使用本機 Whisper，不需要 API Key；瀏覽器模式使用麥克風。</span><span>智慧影片逐字稿 · Desktop v0.2.0</span></footer>
+    <footer class="footer-note"><span>桌面版使用本機語音辨識，不需要 API Key。</span><div class="footer-details"><p>公開且未加密的 YouTube、部分 Facebook／短影音網址可以支援；需要登入、私人影片、DRM 或網站刻意阻擋下載的內容，無法保證擷取。</p><p>© 2026 智慧影片逐字稿 · 設計者：陳賢宗 · 版本號：v0.3.0</p></div></footer>
   </main>
   <script src="./app.js"></script>
 </body>

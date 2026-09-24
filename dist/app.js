@@ -7,7 +7,7 @@
     file: $("#videoFile"), url: $("#videoUrl"), loadUrl: $("#loadUrlBtn"), dropzone: $("#dropzone"),
     fileMeta: $("#fileMeta"), video: $("#videoPreview"), language: $("#language"), modelSize: $("#modelSize"),
     chunkSeconds: $("#chunkSeconds"), retryCount: $("#retryCount"), diarization: $("#speakerDiarization"),
-    outline: $("#generateOutline"), start: $("#startBtn"), stop: $("#stopBtn"), resume: $("#resumeCard"),
+    outline: $("#generateOutline"), correction: $("#correctTranscript"), toggleRaw: $("#toggleRawBtn"), start: $("#startBtn"), stop: $("#stopBtn"), resume: $("#resumeCard"),
     resumeText: $("#resumeText"), resumeBtn: $("#resumeBtn"), clearResume: $("#clearResumeBtn"),
     overallStatus: $("#overallStatus"), overallProgress: $("#overallProgress"), liveStatus: $("#liveStatus"), transcribeDetail: $("#transcribeDetail"),
     segmentStatus: $("#segmentStatus"), errorLog: $("#errorLog"), transcriptList: $("#transcriptList"),
@@ -20,7 +20,7 @@
   const EXTENSIONS = ["mp4", "mkv", "mov", "avi", "webm"];
   const state = {
     file: null, filePath: "", sourceUrl: "", objectUrl: "", duration: 0, running: false, cancelled: false,
-    records: [], completedChunks: 0, outline: null, checkpoint: null, jobId: null, audioContext: null, mediaStream: null, recorder: null, recognition: null,
+    records: [], completedChunks: 0, outline: null, checkpoint: null, jobId: null, showRaw: false, audioContext: null, mediaStream: null, recorder: null, recognition: null,
   };
   const desktopMode = Boolean(window.desktopApi?.isDesktop);
 
@@ -162,6 +162,9 @@
     if (phase === "audio") { setStep("ingest", "done", "來源已就緒"); setStep("audio", "active", payload.message); setLive(payload.message, `${(payload.index || 0) + 1}/${payload.total || "—"}`); setOverall("active", 8 + (payload.progress || 0), "擷取音訊"); }
     if (phase === "transcribe") { setStep("audio", "done", "音訊片段已建立"); setStep("transcribe", "active", payload.message); setLive(payload.message, `${(payload.index || 0) + 1}/${payload.total || "—"}`); setOverall("active", 12 + (payload.progress || 0), "本機語音辨識"); }
     if (phase === "retry") { setStep("transcribe", "active", payload.message); setLive(payload.message, `${(payload.index || 0) + 1}/${payload.total || "—"}`); logError(payload.message); }
+    if (phase === "correction") { setStep("transcribe", "active", payload.message); setLive(payload.message, payload.total ? `${payload.index || 0}/${payload.total}` : "—"); setOverall("active", 85 + Math.min(10, (payload.progress || 0) / 10), "逐字稿校正"); }
+    if (phase === "correction-warning") { logError(payload.message); setLive(payload.message); }
+    if (phase === "correction-done") { setStep("transcribe", "done", payload.message); setLive(payload.message); setOverall("active", 96, "整理結果"); }
     if (phase === "done") { setStep("audio", "done", "音訊擷取完成"); setStep("transcribe", "done", "本機辨識完成"); setOverall("active", 92, "整理結果"); setLive(payload.message); }
   }
   if (desktopMode) window.desktopApi.onProgress(handleDesktopProgress);
@@ -169,10 +172,23 @@
   async function startDesktopProcessing(resume = false) {
     if (!state.filePath && !state.sourceUrl) { logError("找不到來源檔案或網址。"); return; }
     state.running = true; state.cancelled = false; clearError(); els.start.disabled = true; els.stop.disabled = false; els.downloads.hidden = true;
-    if (!resume) { state.records = []; state.completedChunks = 0; }
+    if (!resume) { state.records = []; state.completedChunks = 0; state.showRaw = false; els.toggleRaw.hidden = true; }
     try {
       const result = await window.desktopApi.transcribe({ filePath: state.filePath, sourceUrl: state.sourceUrl, language: els.language.value, model: els.modelSize?.value || "base", chunkSeconds: Number(els.chunkSeconds.value) || 30, retryCount: Number(els.retryCount.value) || 3, diarization: els.diarization.checked, resumeIndex: resume ? state.completedChunks : 0, resumeRecords: resume ? state.records : [] });
       state.jobId = null; state.duration = result.duration || state.duration; state.records = result.records || []; state.completedChunks = Math.ceil(state.duration / (Number(els.chunkSeconds.value) || 30)); renderTranscript(); setStep("transcribe", "done", `${state.records.length} 段逐字稿`);
+      if (els.correction.checked && state.records.length) {
+        setStep("transcribe", "active", "準備本機逐字稿校正");
+        setOverall("active", 85, "逐字稿校正");
+        try {
+          const correction = await window.desktopApi.correctTranscript({ records: state.records });
+          state.records = correction.records; state.jobId = null; state.showRaw = false; els.toggleRaw.hidden = false; els.toggleRaw.textContent = "查看辨識原文"; renderTranscript();
+          setStep("transcribe", "done", `校正 ${correction.correctedCount} 段，保留辨識原文`);
+        } catch (error) {
+          state.jobId = null;
+          logError(`逐字稿校正未完成，保留辨識原文：${error.message}`);
+          setStep("transcribe", "done", "已保留辨識原文");
+        }
+      }
       if (els.outline.checked) { setStep("outline", "active", "本機摘要與大綱生成中"); renderSummary(heuristicOutline()); setStep("outline", "done", "已完成本機摘要與大綱"); } else setStep("outline", "done", "已略過");
       clearCheckpoint(); setOverall("done", 100, "處理完成"); setLive(`本機逐字稿已完成 · ${result.model || "Whisper"}`, `${state.records.length} 段`); els.downloads.hidden = false;
     } catch (error) {
@@ -200,8 +216,9 @@
   function joinedWords(text) { const matches = text.match(/[\u4e00-\u9fff]{2,8}|[A-Za-z][A-Za-z0-9-]{2,}/g) || []; const counts = new Map(); matches.forEach(word => counts.set(word.toLowerCase(), (counts.get(word.toLowerCase()) || 0) + 1)); return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(x => x[0]); }
   function renderTranscript() {
     els.transcriptEmpty.hidden = state.records.length > 0; els.transcriptList.hidden = !state.records.length; els.transcriptCount.textContent = `${state.records.length} 段`;
-    els.transcriptList.innerHTML = state.records.map(record => `<article class="transcript-line"><time class="timestamp">${formatTime(record.start)}</time><span class="speaker">${escapeHtml(record.speaker || "")}</span><span class="transcript-text">${escapeHtml(record.text)}</span></article>`).join("");
+    els.transcriptList.innerHTML = state.records.map(record => `<article class="transcript-line${record.corrected && !state.showRaw ? " corrected" : ""}"><time class="timestamp">${formatTime(record.start)}</time><span class="speaker">${escapeHtml(record.speaker || "")}</span><span class="transcript-text">${escapeHtml(state.showRaw ? (record.rawText || record.text) : record.text)}</span></article>`).join("");
   }
+  els.toggleRaw.addEventListener("click", () => { state.showRaw = !state.showRaw; els.toggleRaw.textContent = state.showRaw ? "查看校正結果" : "查看辨識原文"; renderTranscript(); });
   function renderSummary(data) {
     els.summary.classList.remove("empty-copy"); els.summary.textContent = data.summary || "沒有摘要。";
     els.outlineContent.classList.remove("empty-copy"); els.outlineContent.innerHTML = (data.outline || []).map(item => `<div class="outline-item"><span class="outline-time">${formatTime(item.start)}</span><div><div class="outline-title">${escapeHtml(item.title)}</div><div class="outline-desc">${escapeHtml(item.description)}</div></div></div>`).join("") || "沒有章節大綱。";

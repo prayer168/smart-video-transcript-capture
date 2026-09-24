@@ -25,6 +25,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify local correction safeguards
+        run: npm test
+
+      - name: Verify local correction model on Windows
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'llama-cli.zip'
+          $binaryDir = Join-Path $env:RUNNER_TEMP 'llama-cli'
+          $model = Join-Path $env:RUNNER_TEMP 'Qwen3-0.6B.Q4_K_M.gguf'
+          curl.exe -L --fail --retry 3 -o $archive 'https://github.com/ggml-org/llama.cpp/releases/download/b11149/llama-b11149-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download llama.cpp binary.' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd1cb5f9ef7bbb7068954b4c9767d5b5309e20bcefeb61d4aafc47f9581f38752') { throw 'llama.cpp checksum mismatch.' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $binaryDir
+          curl.exe -L --fail --retry 3 -o $model 'https://huggingface.co/QuantFactory/Qwen3-0.6B-GGUF/resolve/e7e05d713acaa2baccdfb52e967eaba8ba562ba8/Qwen3-0.6B.Q4_K_M.gguf'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download correction model.' }
+          if ((Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant() -ne '7af3fdf842f87b24672f8a7f1dd50404043f0bfb71093ff91c31d2b49df4631d') { throw 'Correction model checksum mismatch.' }
+          $binary = Get-ChildItem -LiteralPath $binaryDir -Filter 'llama-cli.exe' -Recurse -File | Select-Object -First 1
+          if ($null -eq $binary) { throw 'llama-cli.exe missing from archive.' }
+          "LLAMA_CLI_PATH=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CORRECTION_MODEL_PATH=$model" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Test real transcript correction
+        run: node tests/real-correction-smoke.cjs
+
       - name: Build installer
         run: npm run dist
 

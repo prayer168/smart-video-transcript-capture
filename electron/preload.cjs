@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("desktopApi", {
   transcribe(options) {
     return ipcRenderer.invoke("transcribe-source", options);
   },
+  correctTranscript(options) {
+    return ipcRenderer.invoke("correct-transcript", options);
+  },
   cancel(jobId) {
     return ipcRenderer.invoke("cancel-transcription", jobId);
   },

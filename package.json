@@ -1,6 +1,6 @@
 {
   "name": "smart-video-transcript-capture",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first desktop video transcription app for Windows",
   "main": "electron/main.cjs",
   "author": "prayer168",
@@ -8,7 +8,8 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check dist/app.js",
+    "check": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/correction.cjs && node --check dist/app.js",
+    "test": "node --test tests/correction.test.cjs",
     "dist": "electron-builder --win nsis --publish never",
     "dist:dir": "electron-builder --win dir"
   },
@@ -29,6 +30,7 @@
       "output": "release"
     },
     "files": [
+      "assets/**/*",
       "dist/**/*",
       "electron/**/*",
       "package.json"
@@ -38,6 +40,7 @@
       "node_modules/ffprobe-static/**/*"
     ],
     "win": {
+      "icon": "assets/app-icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -47,6 +50,8 @@
       "artifactName": "Smart-Video-Transcript-Setup-${version}.${ext}"
     },
     "nsis": {
+      "installerIcon": "assets/app-icon.ico",
+      "uninstallerIcon": "assets/app-icon.ico",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
