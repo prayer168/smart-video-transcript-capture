@@ -7,7 +7,7 @@ const crypto = require("node:crypto");
 const https = require("node:https");
 const { spawn } = require("node:child_process");
 const extract = require("extract-zip");
-const { promptFor, schemaFor, applyCorrection } = require("./correction.cjs");
+const { promptFor, applyCorrection } = require("./correction.cjs");
 const ffmpegPackagePath = require("ffmpeg-static");
 const ffprobePackagePath = require("ffprobe-static").path;
 
@@ -348,7 +348,7 @@ async function correctTranscript(event, options) {
       const slice = records.slice(index, index + batchSize);
       sendProgress(event, { jobId: id, phase: "correction", message: `正在校正逐字稿 ${Math.min(index + batchSize, records.length)}/${records.length}…`, progress: 15 + 80 * index / Math.max(1, records.length), index, total: records.length });
       try {
-        const result = await runCommand(binary, ["-m", model, "--simple-io", "--single-turn", "--no-display-prompt", "--no-warmup", "--no-show-timings", "-n", "1024", "-c", "4096", "--temp", "0.1", "--json-schema", JSON.stringify(schemaFor(slice.length)), "-p", promptFor(slice)], { job });
+        const result = await runCommand(binary, ["-m", model, "--simple-io", "--single-turn", "--no-display-prompt", "--no-warmup", "--no-show-timings", "-n", "1024", "-c", "4096", "--temp", "0.1", "-p", promptFor(slice)], { job });
         records.splice(index, slice.length, ...applyCorrection(slice, result.stdout));
       } catch (error) {
         if (job.cancelled) throw error;

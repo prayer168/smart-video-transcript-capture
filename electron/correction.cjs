@@ -3,13 +3,14 @@
 const FILLER_ONLY = /^(?:嗯+|呃+|啊+|那個|就是|you know|um+|uh+|erm+)[，,。.!！?？\s]*$/iu;
 
 function promptFor(records) {
-  const lines = records.map((record, index) => ({ id: index, text: record.text }));
+  const lines = records.map((record, index) => `id=${index} text=${JSON.stringify(record.text)}`);
   return [
     "/no_think",
     "你是逐字稿校對員。依據同批句子的上下文，僅修正明顯的語音辨識錯字、錯誤英文單字與少量無意義語助詞。",
     "禁止重寫、摘要、合併、拆分、翻譯或補充資訊；保持原來的語氣、句序、專名與數字。若不確定，就保留原句。",
     "只輸出 JSON 陣列，長度、順序、id 必須與輸入相同；每項僅有 id 與 text。不要 Markdown。",
-    `輸入：${JSON.stringify(lines)}`,
+    "輸入：",
+    ...lines,
     "輸出："
   ].join("\n");
 }
