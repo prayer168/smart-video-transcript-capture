@@ -28,7 +28,7 @@
       <div>
         <p class="eyebrow accent">從影片開始，留下可搜尋的知識</p>
         <h2>把一段影片，整理成逐字稿與重點大綱。</h2>
-        <p class="intro-copy">支援長影片分段辨識、失敗重試、時間戳記與多種下載格式。你的 API Key 僅在目前瀏覽器工作階段使用。</p>
+        <p class="intro-copy">支援長影片分段辨識、失敗重試、時間戳記與多種下載格式。Windows 桌面版會在本機完成語音辨識，不需要 API Key。</p>
       </div>
       <div class="flow-strip" aria-label="處理流程">
         <span>匯入</span><b>→</b><span>分段</span><b>→</b><span>辨識</span><b>→</b><span>整理</span>
@@ -45,11 +45,11 @@
           </div>
           <div class="source-view active" data-source-view="upload">
             <label class="dropzone" id="dropzone" for="videoFile">
-              <input id="videoFile" type="file" accept="video/mp4,video/x-matroska,video/quicktime,video/x-msvideo,video/webm,.mp4,.mkv,.mov,.avi,.webm" />
+              <input id="videoFile" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.avi,.webm,.m4v,.m4a,.mp3,.wav,.flac,.ogg,.aac" />
               <span class="drop-icon" aria-hidden="true">＋</span>
               <strong>拖曳影片到這裡</strong>
               <span>或點擊選擇本機檔案</span>
-              <small>支援 MP4、MKV、MOV、AVI、WEBM</small>
+              <small>支援 MP4、MKV、MOV、AVI、WEBM 及常見音訊格式</small>
             </label>
           </div>
           <div class="source-view" data-source-view="url">
@@ -75,13 +75,18 @@
             </select>
           </div>
           <div class="mode-grid" role="radiogroup" aria-label="辨識模式">
-            <label class="mode-card selected"><input type="radio" name="mode" value="whisper" checked /><span class="mode-card-icon">✦</span><span><strong>Whisper 高精度</strong><small>適合影片檔與長影片</small></span></label>
+            <label class="mode-card selected"><input type="radio" name="mode" value="whisper" checked /><span class="mode-card-icon">✦</span><span><strong>本機 Whisper 高精度</strong><small>不需 API Key，支援長影片</small></span></label>
             <label class="mode-card"><input type="radio" name="mode" value="browser" /><span class="mode-card-icon">◉</span><span><strong>瀏覽器語音辨識</strong><small>即時麥克風辨識，免 API</small></span></label>
           </div>
-          <div id="apiKeyGroup" class="field-group">
-            <label class="field-label" for="apiKey">OpenAI API Key <span class="optional">選填於本機</span></label>
-            <input id="apiKey" class="text-input" type="password" placeholder="sk-..." autocomplete="off" />
-            <p class="field-help">只存在目前頁面記憶體，不會寫入檔案或伺服器。</p>
+          <div id="localEngineGroup" class="field-group">
+            <label class="field-label" for="modelSize">本機模型</label>
+            <select id="modelSize" class="text-input">
+              <option value="tiny">Tiny · 快速、較低準確度</option>
+              <option value="base" selected>Base · 建議的平衡模式</option>
+              <option value="small">Small · 較高準確度、較慢</option>
+              <option value="medium">Medium · 高準確度、需要更多記憶體</option>
+            </select>
+            <p class="field-help">第一次使用會自動下載本機 Whisper 引擎與模型；下載後可離線辨識，不需要 OpenAI API Key。</p>
           </div>
           <div class="two-col-fields">
             <div class="field-group"><label class="field-label" for="chunkSeconds">分段秒數</label><input id="chunkSeconds" class="text-input" type="number" min="10" max="120" value="30" /></div>
@@ -123,7 +128,7 @@
         </section>
       </section>
     </div>
-    <footer class="footer-note"><span>提示：瀏覽器語音辨識模式使用麥克風；要把影片音訊分段送入 Whisper，請選擇高精度模式。</span><span>智慧影片逐字稿 · MVP · v0.1.0</span></footer>
+    <footer class="footer-note"><span>提示：桌面版使用本機 Whisper，不需要 API Key；瀏覽器模式使用麥克風。</span><span>智慧影片逐字稿 · Desktop v0.2.0</span></footer>
   </main>
   <script src="./app.js"></script>
 </body>

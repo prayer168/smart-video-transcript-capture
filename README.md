@@ -1,101 +1,116 @@
 # 智慧影片逐字稿（Smart Video Transcript Capture）
 
-版本：**v0.1.0**（MVP）
+版本：**v0.2.0**（Windows Desktop MVP）
 
-智慧影片逐字稿是一個以瀏覽器為工作台的影片逐字稿與大綱生成 Web App。使用者可以匯入本機影片或可直接播放的影片網址，取得影片長度、分段音訊、產生帶時間戳記的逐字稿，並整理成摘要、章節大綱與關鍵字。
+這是一套不需要 OpenAI API Key 的 Windows 桌面 App。影片下載、音訊切割、語音辨識與摘要大綱都在本機執行，適合處理本機影片，以及可由 `yt-dlp` 公開擷取的影音網址。
 
-## 線上版本
+## 主要功能
 
-- Web App（GitHub Pages）：<https://prayer168.github.io/smart-video-transcript-capture/>
-- 原 Sites 預覽：<https://smart-video-transcript.prayer168.chatgpt.site/>
-- GitHub：<https://github.com/prayer168/smart-video-transcript-capture>
-
-## 功能
-
-- 支援本機上傳與直接影片網址
-- 支援 MP4、MKV、MOV、AVI、WEBM
-- 自動取得影片長度與影片預覽
-- 自動偵測語言，亦可指定中文、英文、日文或韓文
-- Whisper 高精度模式：依固定秒數切割音訊後逐段辨識
-- 瀏覽器語音辨識模式：使用 Chrome／Edge 麥克風即時辨識
-- 長影片分段、每段起始時間、失敗自動重試
-- 以瀏覽器儲存工作檢查點，支援中斷後繼續處理
-- 可選說話者欄位、摘要與章節大綱
-- 產生逐字稿、時間戳記、摘要、章節大綱與關鍵字
+- 貼上 YouTube、部分 Facebook、短影音與其他 `yt-dlp` 支援的公開影音網址
+- 上傳 MP4、MKV、MOV、AVI、WEBM、M4V、M4A、MP3、WAV、FLAC、OGG、AAC
+- FFmpeg 自動轉換音訊、取得長度並依固定秒數切段
+- 本機 Whisper 語音辨識，不需要 OpenAI API Key 或雲端 API
+- Tiny、Base、Small、Medium 模型選擇
+- 長影片逐段處理、進度顯示、失敗重試與中斷後繼續
+- 時間戳記、逐字稿、摘要、章節大綱與關鍵字
 - 匯出 TXT、Markdown、SRT、VTT、JSON
-- 處理進度、目前片段、錯誤與重試狀態提示
+- Windows 安裝程式 `setup.exe`
 
-## 資料流程
+## 系統架構
 
 ```text
-影片檔案／直接影片網址
+Windows Desktop App（Electron）
         ↓
-取得影片長度與瀏覽器可讀取的音訊
+網址：yt-dlp      本機檔案：直接讀取
         ↓
-依固定秒數切割音訊並保留起始時間
+FFmpeg：取得長度、轉 WAV、切割音訊
         ↓
-逐段送至語音辨識服務，失敗時自動重試
+Whisper.cpp：本機語音辨識
         ↓
-合併片段、修正時間戳記與去除重複文字
-        ↓
-產生摘要、章節大綱、關鍵字與下載檔案
+逐字稿合併、時間戳記、摘要大綱與匯出
 ```
 
-## 本機執行
+## 安裝與執行
 
-這是純靜態前端，不需要 Node.js 或資料庫。可使用任何靜態伺服器開啟 `dist/`：
+### 開發模式
+
+需要 Node.js 20 以上：
 
 ```powershell
-python -m http.server 4173 --directory dist
+npm install
+npm start
 ```
 
-然後開啟 <http://127.0.0.1:4173>。
+第一次使用本機 Whisper 時，App 會在使用者資料夾下載：
 
-## Whisper 模式設定
+- `yt-dlp.exe`
+- Whisper.cpp Windows 執行檔
+- 選定的 Whisper 模型
 
-1. 選擇「Whisper 高精度」。
-2. 在頁面輸入自己的 OpenAI API Key。
-3. 選擇影片、語言、分段秒數與重試次數。
-4. 按下「開始處理」。
+下載完成後，語音辨識可在本機離線執行。模型大小與準確度取捨如下：
 
-API Key 只存在目前瀏覽器頁面的記憶體，不會寫入檔案或提交到 GitHub。正式多人使用時，建議改成由後端代理呼叫語音辨識服務，避免在前端輸入或暴露 API Key。
+| 模型 | 特性 |
+| --- | --- |
+| Tiny | 最快，準確度較低 |
+| Base | 建議起始選擇，速度與準確度平衡 |
+| Small | 較準確，需要較多時間與記憶體 |
+| Medium | 高準確度，需要較多記憶體與磁碟空間 |
 
-## 瀏覽器語音辨識模式
+### 建立 Windows setup.exe
 
-此模式使用瀏覽器的 `SpeechRecognition` API 與麥克風進行即時辨識，適合快速測試，不會將任意影片檔的音訊直接餵給瀏覽器語音辨識 API。建議使用最新版 Chrome 或 Edge，並允許麥克風權限。
+```powershell
+npm run dist
+```
+
+輸出檔會放在 `release/Smart-Video-Transcript-Setup-0.2.0.exe`。
+
+## 網址擷取限制
+
+網址擷取由 `yt-dlp` 處理，能支援的網站與格式會隨網站改版而變動。以下情況可能無法下載：
+
+- 私人影片、需要登入或年齡驗證的影片
+- DRM、加密串流或付費內容
+- 網站封鎖自動化下載
+- 需要 Cookie、驗證碼或特殊瀏覽器工作階段的內容
+- 來源網站沒有可取得的音訊串流
+
+這些限制不是 Whisper 造成的，而是來源網站的存取權限與串流格式限制。請只處理你有權下載與轉錄的內容。
+
+## 本機處理與隱私
+
+- 不需要 OpenAI API Key
+- 不會把影片或音訊上傳到 OpenAI
+- 本機 Whisper 模型與暫存音訊放在 Windows 使用者資料夾
+- 下載來源網址時，影片會先暫存於本機，再分段處理
+- 完成或取消工作後，App 會清理大部分暫存片段
 
 ## 目前限制
 
-- 影片網址必須是可直接播放或下載的影片檔網址；YouTube 或一般影片頁面網址需要後端下載器與授權流程。
-- MKV 與部分遠端影片是否能在瀏覽器預覽、讀取音訊，取決於瀏覽器解碼器與跨來源（CORS）設定。
-- 說話者辨識目前提供 Speaker 1／Speaker 2 等欄位與介面預留；真正的多人聲紋分離需要接入專門的 diarization 服務。
-- 背景音樂、噪音、重疊說話會降低語音辨識準確度；可在後端加入降噪、VAD 或音訊前處理提升品質。
-- 純靜態前端適合 MVP。正式環境建議加入後端工作佇列、檔案儲存、權限控管、使用量限制與日誌系統。
+- 說話者辨識介面已保留，但完整聲紋分離仍需整合本機 diarization 模型。
+- 背景音樂、噪音與多人重疊說話會降低辨識準確度。
+- 摘要與大綱目前使用本機規則生成，不是大型語言模型生成。
+- GitHub Pages 版本只保留介面預覽；完整本機辨識功能請使用 Windows `setup.exe`。
 
 ## 專案結構
 
 ```text
 .
-├── VERSION                 # 目前版本號
-├── README.md               # 專案說明
+├── VERSION
+├── README.md
+├── package.json             # Electron 與 setup.exe 打包設定
+├── electron/
+│   ├── main.cjs             # 本機下載、FFmpeg、Whisper 與 IPC
+│   └── preload.cjs          # 安全的 Renderer／主程序橋接
 ├── dist/
-│   ├── index.html          # Web App 入口
-│   ├── app.js              # 影片匯入、分段、辨識與匯出邏輯
-│   └── styles.css          # 介面樣式
-├── tests/
-│   ├── fixtures/            # 測試用影片與字幕檔
-│   └── test-report.md       # 18 項功能測試報告
-└── .openai/hosting.json     # Sites 部署設定
+│   ├── index.html           # App 介面
+│   ├── app.js               # 互動、進度、結果與匯出
+│   └── styles.css           # 介面樣式
+└── tests/fixtures/          # 測試用素材
 ```
-
-## 測試
-
-目前已針對 MP4、MKV、MOV、WEBM、有／無字幕、中文、英文、中英混合、短片、長片、無人聲、背景音樂、多人對話、錯誤網址、不支援格式、網路中斷與語音 API 失敗等情境完成 MVP 測試。
-
-完整結果請參閱 [`tests/test-report.md`](tests/test-report.md)。
 
 ## 版本策略
 
 本專案採用語意化版本號：`主版本.次版本.修訂版本`。
 
-- `0.1.0`：完成影片匯入、長影片分段、語音辨識、重試／續作、逐字稿結果、摘要大綱與多格式匯出的 MVP。
+- `0.2.0`：改為 Windows Electron 桌面 App，加入 yt-dlp、FFmpeg、本機 Whisper 與 `setup.exe` 打包流程。
+- `0.1.0`：原始瀏覽器版影片匯入、分段、逐字稿、摘要大綱與匯出 MVP。

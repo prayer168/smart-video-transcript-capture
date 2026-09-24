@@ -5,7 +5,7 @@
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const els = {
     file: $("#videoFile"), url: $("#videoUrl"), loadUrl: $("#loadUrlBtn"), dropzone: $("#dropzone"),
-    fileMeta: $("#fileMeta"), video: $("#videoPreview"), language: $("#language"), apiKey: $("#apiKey"),
+    fileMeta: $("#fileMeta"), video: $("#videoPreview"), language: $("#language"), modelSize: $("#modelSize"),
     chunkSeconds: $("#chunkSeconds"), retryCount: $("#retryCount"), diarization: $("#speakerDiarization"),
     outline: $("#generateOutline"), start: $("#startBtn"), stop: $("#stopBtn"), resume: $("#resumeCard"),
     resumeText: $("#resumeText"), resumeBtn: $("#resumeBtn"), clearResume: $("#clearResumeBtn"),
@@ -19,9 +19,10 @@
   const CHECKPOINT_KEY = "smart-video-transcript-checkpoint-v1";
   const EXTENSIONS = ["mp4", "mkv", "mov", "avi", "webm"];
   const state = {
-    file: null, sourceUrl: "", objectUrl: "", duration: 0, running: false, cancelled: false,
-    records: [], checkpoint: null, audioContext: null, mediaStream: null, recorder: null, recognition: null,
+    file: null, filePath: "", sourceUrl: "", objectUrl: "", duration: 0, running: false, cancelled: false,
+    records: [], completedChunks: 0, outline: null, checkpoint: null, jobId: null, audioContext: null, mediaStream: null, recorder: null, recognition: null,
   };
+  const desktopMode = Boolean(window.desktopApi?.isDesktop);
 
   function mode() { return $("input[name=mode]:checked").value; }
   function formatTime(seconds, short = false) {
@@ -56,27 +57,34 @@
   $$('[data-source-tab]').forEach(button => button.addEventListener("click", () => setSourceTab(button.dataset.sourceTab)));
   $$('input[name="mode"]').forEach(input => input.addEventListener("change", () => {
     $$(".mode-card").forEach(card => card.classList.toggle("selected", $("input", card).checked));
-    $("#apiKeyGroup").classList.toggle("hidden", mode() === "browser");
+    const localEngine = $("#localEngineGroup"); if (localEngine) localEngine.classList.toggle("hidden", mode() === "browser");
   }));
 
   function revealSource(name, sourceUrl = "") {
-    state.file = name instanceof File ? name : null; state.sourceUrl = sourceUrl; state.duration = 0;
+    state.file = name instanceof File ? name : null; state.filePath = state.file && desktopMode ? (window.desktopApi.getFilePath(state.file) || state.file.path || "") : ""; state.sourceUrl = sourceUrl; state.duration = 0; state.completedChunks = 0;
     if (state.objectUrl) URL.revokeObjectURL(state.objectUrl); state.objectUrl = "";
     const src = state.file ? (state.objectUrl = URL.createObjectURL(state.file)) : sourceUrl;
     if (!src) return;
     els.video.crossOrigin = "anonymous"; els.video.src = src; els.video.hidden = false; els.video.load();
+    if (desktopMode && state.filePath) {
+      window.desktopApi.inspectSource({ filePath: state.filePath }).then(meta => {
+        state.duration = Number(meta.duration) || 0;
+        els.fileMeta.classList.remove("empty"); els.fileMeta.innerHTML = `<strong>${escapeHtml(meta.title || state.file.name)}</strong><span>${formatTime(state.duration)} · ${formatBytes(meta.size)}</span>`;
+        els.start.disabled = false; setStep("ingest", "done", `${formatTime(state.duration)} · 已就緒`); setLive("影片已就緒，可以開始處理"); checkCheckpoint();
+      }).catch(error => { els.start.disabled = true; logError(error.message); });
+    }
     els.video.onloadedmetadata = () => {
       state.duration = Number.isFinite(els.video.duration) ? els.video.duration : 0;
       const title = state.file ? state.file.name : new URL(sourceUrl).pathname.split("/").pop() || "遠端影片";
       els.fileMeta.classList.remove("empty"); els.fileMeta.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${formatTime(state.duration)} · ${state.file ? formatBytes(state.file.size) : "直接影片網址"}</span>`;
       els.start.disabled = false; setStep("ingest", "done", `${formatTime(state.duration)} · 已就緒`); setLive("影片已就緒，可以開始處理"); checkCheckpoint();
     };
-    els.video.onerror = () => { els.start.disabled = true; logError("影片無法載入。請確認網址是可直接播放的影片檔，或改用本機上傳。瀏覽器可能也會因跨來源限制而無法擷取遠端音訊。"); };
+    els.video.onerror = () => { if (desktopMode && state.filePath) return; els.start.disabled = true; logError("影片無法載入。請確認網址是可直接播放的影片檔，或改用本機上傳。瀏覽器可能也會因跨來源限制而無法擷取遠端音訊。"); };
   }
-  function validateExtension(name) { const ext = name.split(".").pop().toLowerCase(); return EXTENSIONS.includes(ext); }
+  function validateExtension(name) { const ext = name.split(".").pop().toLowerCase(); return EXTENSIONS.concat(["m4v", "m4a", "mp3", "wav", "flac", "ogg", "aac"]).includes(ext); }
   els.file.addEventListener("change", () => {
     const file = els.file.files?.[0]; if (!file) return;
-    if (!validateExtension(file.name)) { logError("不支援的影片格式。請選擇 MP4、MKV、MOV、AVI 或 WEBM。"); els.file.value = ""; return; }
+    if (!validateExtension(file.name)) { logError("不支援的影音格式。請選擇 MP4、MKV、MOV、AVI、WEBM 或常見音訊格式。"); els.file.value = ""; return; }
     clearError(); setSourceTab("upload"); revealSource(file);
   });
   ["dragenter", "dragover"].forEach(event => els.dropzone.addEventListener(event, e => { e.preventDefault(); els.dropzone.classList.add("dragover"); }));
@@ -85,23 +93,33 @@
   els.loadUrl.addEventListener("click", () => {
     const url = els.url.value.trim();
     if (!url || !/^https?:\/\//i.test(url)) { logError("請輸入完整的 http:// 或 https:// 影片網址。"); return; }
-    clearError(); setSourceTab("url"); revealSource(null, url);
+    clearError(); setSourceTab("url");
+    if (desktopMode) {
+      state.file = null; state.filePath = ""; state.sourceUrl = url; state.duration = 0; els.start.disabled = true; setStep("ingest", "active", "正在分析網址"); setLive("正在辨識網址中的影片…");
+      window.desktopApi.inspectSource({ sourceUrl: url }).then(meta => {
+        state.duration = Number(meta.duration) || 0; const label = meta.title || "遠端影片";
+        els.fileMeta.classList.remove("empty"); els.fileMeta.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${state.duration ? formatTime(state.duration) : "長度待下載後確認"} · ${escapeHtml(meta.extractor || "網址來源")}</span>`;
+        els.video.hidden = true; els.start.disabled = false; setStep("ingest", "done", `${state.duration ? formatTime(state.duration) : "網址已就緒"}`); setLive("網址已就緒，可以開始處理"); checkCheckpoint();
+      }).catch(error => { els.start.disabled = true; setStep("ingest", "active", "網址無法使用"); logError(`網址分析失敗：${error.message}`); });
+      return;
+    }
+    revealSource(null, url);
   });
 
   function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c])); }
   function checkpointKey() { return JSON.stringify({ name: state.file?.name || state.sourceUrl, duration: Math.round(state.duration), chunk: Number(els.chunkSeconds.value) }); }
   function saveCheckpoint() {
-    const payload = { key: checkpointKey(), name: state.file?.name || state.sourceUrl, duration: state.duration, chunk: Number(els.chunkSeconds.value), records: state.records, savedAt: new Date().toISOString() };
+    const payload = { key: checkpointKey(), name: state.file?.name || state.sourceUrl, duration: state.duration, chunk: Number(els.chunkSeconds.value), completedChunks: state.completedChunks, records: state.records, savedAt: new Date().toISOString() };
     sessionStorage.setItem(CHECKPOINT_KEY, JSON.stringify(payload));
   }
   function clearCheckpoint() { sessionStorage.removeItem(CHECKPOINT_KEY); state.checkpoint = null; els.resume.hidden = true; }
   function checkCheckpoint() {
     try { const item = JSON.parse(sessionStorage.getItem(CHECKPOINT_KEY) || "null"); if (!item || item.key !== checkpointKey() || !item.records?.length || item.records.length >= Math.ceil(state.duration / item.chunk)) return;
-      state.checkpoint = item; els.resume.hidden = false; els.resumeText.textContent = `已完成 ${item.records.length} 個片段（${formatTime(item.records[item.records.length - 1].end)}），可以繼續。`;
+      state.checkpoint = item; els.resume.hidden = false; els.resumeText.textContent = `已完成 ${item.records.length} 段逐字稿，可以繼續。`;
     } catch { clearCheckpoint(); }
   }
   els.clearResume.addEventListener("click", clearCheckpoint);
-  els.resumeBtn.addEventListener("click", () => { if (state.checkpoint) { state.records = state.checkpoint.records || []; els.resume.hidden = true; startProcessing(true); } });
+  els.resumeBtn.addEventListener("click", () => { if (state.checkpoint) { state.records = state.checkpoint.records || []; state.completedChunks = Number(state.checkpoint.completedChunks || 0); els.resume.hidden = true; startProcessing(true); } });
 
   function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
   function getAudioStream() {
@@ -125,14 +143,7 @@
     state.recorder = null; return done;
   }
   function seekVideo(time) { return new Promise((resolve, reject) => { const onSeek = () => { cleanup(); resolve(); }; const onError = () => { cleanup(); reject(new Error("影片無法跳轉到指定片段")); }; const cleanup = () => { els.video.removeEventListener("seeked", onSeek); els.video.removeEventListener("error", onError); }; els.video.addEventListener("seeked", onSeek, { once: true }); els.video.addEventListener("error", onError, { once: true }); els.video.currentTime = Math.max(0, time); }); }
-  async function transcribeBlob(blob, start, previousText = "") {
-    const key = els.apiKey.value.trim(); if (!key) throw new Error("Whisper 模式需要 OpenAI API Key。");
-    const form = new FormData(); form.append("file", blob, `segment-${Math.round(start)}.webm`); form.append("model", els.diarization.checked ? "gpt-4o-transcribe-diarize" : "gpt-4o-mini-transcribe"); form.append("response_format", els.diarization.checked ? "diarized_json" : "verbose_json");
-    if (els.language.value !== "auto") form.append("language", els.language.value); if (previousText) form.append("prompt", previousText.slice(-500));
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form });
-    if (!response.ok) { const detail = await response.text(); throw new Error(`API ${response.status}: ${detail.slice(0, 240)}`); }
-    return response.json();
-  }
+  async function transcribeBlob() { throw new Error("瀏覽器版不使用雲端 API；請使用 Windows 桌面版進行本機 Whisper 辨識。"); }
   function normalizeResponse(data, start, duration) {
     const segments = Array.isArray(data.segments) ? data.segments : [];
     if (!segments.length && data.text) return [{ start, end: start + duration, speaker: data.speaker || "", text: data.text.trim() }].filter(x => x.text);
@@ -141,43 +152,45 @@
   async function withRetry(task, count, label) {
     let lastError; for (let attempt = 0; attempt <= count; attempt++) { if (state.cancelled) throw new Error("使用者停止處理"); try { return await task(); } catch (error) { lastError = error; if (attempt < count) { setLive(`${label}失敗，${attempt + 1} 秒後重試`, `第 ${attempt + 1}/${count} 次重試`); await sleep((attempt + 1) * 1000); } } } throw lastError;
   }
-  async function startProcessing(resume = false) {
-    if (state.running) return; if (!state.file && !state.sourceUrl) { logError("請先選擇影片或載入影片網址。"); return; }
-    if (mode() === "browser") { startBrowserRecognition(); return; }
-    if (!els.apiKey.value.trim()) { logError("請輸入 OpenAI API Key，或切換到瀏覽器語音辨識模式。"); return; }
+  function handleDesktopProgress(payload) {
+    if (payload.jobId) state.jobId = payload.jobId;
+    if (payload.duration) state.duration = Number(payload.duration);
+    const phase = payload.phase;
+    if (payload.records) { state.records = payload.records; state.completedChunks = Number(payload.index || 0); renderTranscript(); saveCheckpoint(); }
+    if (phase === "runtime" || phase === "prepare") { setStep("ingest", "active", payload.message); setLive(payload.message); setOverall("active", payload.progress || 2, "準備本機引擎"); }
+    if (phase === "download") { setStep("ingest", "active", payload.message); setLive(payload.message); setOverall("active", payload.progress || 10, "下載影片"); }
+    if (phase === "audio") { setStep("ingest", "done", "來源已就緒"); setStep("audio", "active", payload.message); setLive(payload.message, `${(payload.index || 0) + 1}/${payload.total || "—"}`); setOverall("active", 8 + (payload.progress || 0), "擷取音訊"); }
+    if (phase === "transcribe") { setStep("audio", "done", "音訊片段已建立"); setStep("transcribe", "active", payload.message); setLive(payload.message, `${(payload.index || 0) + 1}/${payload.total || "—"}`); setOverall("active", 12 + (payload.progress || 0), "本機語音辨識"); }
+    if (phase === "retry") { setStep("transcribe", "active", payload.message); setLive(payload.message, `${(payload.index || 0) + 1}/${payload.total || "—"}`); logError(payload.message); }
+    if (phase === "done") { setStep("audio", "done", "音訊擷取完成"); setStep("transcribe", "done", "本機辨識完成"); setOverall("active", 92, "整理結果"); setLive(payload.message); }
+  }
+  if (desktopMode) window.desktopApi.onProgress(handleDesktopProgress);
+
+  async function startDesktopProcessing(resume = false) {
+    if (!state.filePath && !state.sourceUrl) { logError("找不到來源檔案或網址。"); return; }
     state.running = true; state.cancelled = false; clearError(); els.start.disabled = true; els.stop.disabled = false; els.downloads.hidden = true;
-    if (!resume) state.records = [];
+    if (!resume) { state.records = []; state.completedChunks = 0; }
     try {
-      setOverall("active", 8, "準備音訊"); setStep("ingest", "done", `${formatTime(state.duration)} · 已就緒`); setStep("audio", "active", "建立音訊串流");
-      const stream = state.mediaStream = getAudioStream(); setStep("audio", "done", "音訊串流已建立"); setStep("transcribe", "active", "等待片段");
-      const chunk = Math.max(10, Math.min(120, Number(els.chunkSeconds.value) || 30)); const total = Math.ceil(state.duration / chunk); const completed = state.records.length;
-      for (let index = completed; index < total; index++) {
-        if (state.cancelled) throw new Error("使用者停止處理，已保存目前進度。");
-        const start = index * chunk; const end = Math.min(state.duration, start + chunk); const label = `片段 ${index + 1}/${total}`;
-        els.transcribeDetail.textContent = `${label} · ${formatTime(start)}–${formatTime(end)}`; setLive(`正在擷取並辨識 ${label}`, `${index + 1}/${total}`); setOverall("active", 10 + (index / total) * 75, `辨識 ${index + 1}/${total}`);
-        const blob = await withRetry(() => recordSegment(stream, start, end), Number(els.retryCount.value) || 0, label);
-        const data = await withRetry(() => transcribeBlob(blob, start, state.records.at(-1)?.text || ""), Number(els.retryCount.value) || 0, `${label} API`);
-        state.records.push(...normalizeResponse(data, start, end - start)); state.records.sort((a, b) => a.start - b.start); renderTranscript(); saveCheckpoint();
-      }
-      setStep("transcribe", "done", `${state.records.length} 段逐字稿`); setOverall("active", 88, "整理結果");
-      if (els.outline.checked) { setStep("outline", "active", "摘要與大綱生成中"); const result = await buildOutline(); renderSummary(result); setStep("outline", "done", "已完成摘要與大綱"); } else { setStep("outline", "done", "已略過"); }
-      clearCheckpoint(); setOverall("done", 100, "處理完成"); setLive("影片逐字稿已完成", `${state.records.length} 段`); els.downloads.hidden = false;
+      const result = await window.desktopApi.transcribe({ filePath: state.filePath, sourceUrl: state.sourceUrl, language: els.language.value, model: els.modelSize?.value || "base", chunkSeconds: Number(els.chunkSeconds.value) || 30, retryCount: Number(els.retryCount.value) || 3, diarization: els.diarization.checked, resumeIndex: resume ? state.completedChunks : 0, resumeRecords: resume ? state.records : [] });
+      state.jobId = null; state.duration = result.duration || state.duration; state.records = result.records || []; state.completedChunks = Math.ceil(state.duration / (Number(els.chunkSeconds.value) || 30)); renderTranscript(); setStep("transcribe", "done", `${state.records.length} 段逐字稿`);
+      if (els.outline.checked) { setStep("outline", "active", "本機摘要與大綱生成中"); renderSummary(heuristicOutline()); setStep("outline", "done", "已完成本機摘要與大綱"); } else setStep("outline", "done", "已略過");
+      clearCheckpoint(); setOverall("done", 100, "處理完成"); setLive(`本機逐字稿已完成 · ${result.model || "Whisper"}`, `${state.records.length} 段`); els.downloads.hidden = false;
     } catch (error) {
-      setOverall("error", Math.max(12, Number.parseFloat(els.overallProgress.style.width) || 12), error.message.includes("停止") ? "已暫停" : "需要處理"); setLive(error.message.includes("停止") ? "已保存目前進度，可稍後繼續" : "處理遇到問題"); logError(error.message); saveCheckpoint();
-    } finally { state.running = false; els.start.disabled = !state.file && !state.sourceUrl; els.stop.disabled = true; if (state.mediaStream) state.mediaStream.getTracks().forEach(t => t.stop()); state.mediaStream = null; if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop(); state.recorder = null; }
+      setOverall("error", Number.parseFloat(els.overallProgress.style.width) || 12, error.message.includes("停止") ? "已暫停" : "需要處理"); setLive(error.message.includes("停止") ? "已保存目前進度，可稍後繼續" : "本機處理遇到問題"); logError(error.message); saveCheckpoint();
+    } finally { state.running = false; state.jobId = null; els.start.disabled = !state.file && !state.sourceUrl; els.stop.disabled = true; }
+  }
+
+  async function startProcessing(resume = false) {
+    if (state.running) return; if (!state.file && !state.filePath && !state.sourceUrl) { logError("請先選擇影片或載入影片網址。"); return; }
+    if (mode() === "browser") { startBrowserRecognition(); return; }
+    if (desktopMode) { await startDesktopProcessing(resume); return; }
+    logError("本機 Whisper 需要使用 Windows 桌面版 App；目前瀏覽器頁面只提供介面預覽與麥克風模式。");
+    return;
   }
   els.start.addEventListener("click", () => startProcessing(false));
-  els.stop.addEventListener("click", () => { state.cancelled = true; setLive("正在安全停止並保存進度…"); if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop(); });
+  els.stop.addEventListener("click", () => { state.cancelled = true; setLive("正在安全停止並保存進度…"); if (desktopMode && state.jobId) void window.desktopApi.cancel(state.jobId); if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop(); });
 
-  async function buildOutline() {
-    const joined = state.records.map(r => `[${formatTime(r.start)}] ${r.speaker ? `${r.speaker}: ` : ""}${r.text}`).join("\n");
-    const key = els.apiKey.value.trim(); if (!key) return heuristicOutline();
-    try {
-      const prompt = `請根據以下影片逐字稿，回傳純 JSON，不要 Markdown：{"summary":"約150字摘要","keywords":["關鍵字"],"outline":[{"start":0,"title":"章節標題","description":"章節重點"}]}。章節 start 必須使用逐字稿中存在的秒數。不要捏造原文沒有的內容。\n\n${joined.slice(0, 50000)}`;
-      const response = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify({ model: "gpt-4o-mini", temperature: 0.2, messages: [{ role: "system", content: "你是影片內容整理助手。" }, { role: "user", content: prompt }] }) });
-      if (!response.ok) throw new Error("大綱 API 無法完成"); const data = await response.json(); const raw = data.choices?.[0]?.message?.content || ""; const parsed = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/\s*```$/, "")); return parsed;
-    } catch (error) { logError(`摘要／大綱生成改用本機規則：${error.message}`); return heuristicOutline(); }
-  }
+  async function buildOutline() { return heuristicOutline(); }
   function heuristicOutline() {
     const summary = state.records.map(r => r.text).join(" ").slice(0, 420) || "尚未辨識到可整理的語音內容。";
     const outline = []; const groupSize = Math.max(1, Math.ceil(state.records.length / 6));
