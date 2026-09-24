@@ -9,7 +9,7 @@
     chunkSeconds: $("#chunkSeconds"), retryCount: $("#retryCount"), diarization: $("#speakerDiarization"),
     outline: $("#generateOutline"), start: $("#startBtn"), stop: $("#stopBtn"), resume: $("#resumeCard"),
     resumeText: $("#resumeText"), resumeBtn: $("#resumeBtn"), clearResume: $("#clearResumeBtn"),
-    overallStatus: $("#overallStatus"), overallProgress: $("#overallProgress"), liveStatus: $("#liveStatus"),
+    overallStatus: $("#overallStatus"), overallProgress: $("#overallProgress"), liveStatus: $("#liveStatus"), transcribeDetail: $("#transcribeDetail"),
     segmentStatus: $("#segmentStatus"), errorLog: $("#errorLog"), transcriptList: $("#transcriptList"),
     transcriptEmpty: $("#transcriptEmpty"), transcriptCount: $("#transcriptCount"), summary: $("#summaryContent"),
     outlineContent: $("#outlineContent"), keywords: $("#keywordsContent"), downloads: $("#downloadGroup"),
@@ -108,6 +108,7 @@
     if (typeof els.video.captureStream === "function") {
       const captured = els.video.captureStream(); const tracks = captured.getAudioTracks();
       if (tracks.length) return new MediaStream(tracks);
+      throw new Error("影片沒有可讀取的音訊軌。");
     }
     if (!window.AudioContext && !window.webkitAudioContext) throw new Error("此瀏覽器不支援擷取影片音訊。");
     state.audioContext = state.audioContext || new (window.AudioContext || window.webkitAudioContext)();
@@ -163,10 +164,10 @@
       clearCheckpoint(); setOverall("done", 100, "處理完成"); setLive("影片逐字稿已完成", `${state.records.length} 段`); els.downloads.hidden = false;
     } catch (error) {
       setOverall("error", Math.max(12, Number.parseFloat(els.overallProgress.style.width) || 12), error.message.includes("停止") ? "已暫停" : "需要處理"); setLive(error.message.includes("停止") ? "已保存目前進度，可稍後繼續" : "處理遇到問題"); logError(error.message); saveCheckpoint();
-    } finally { state.running = false; els.start.disabled = !state.file && !state.sourceUrl; els.stop.disabled = true; if (state.mediaStream) state.mediaStream.getTracks().forEach(t => t.stop()); state.mediaStream = null; if (state.recorder?.state !== "inactive") state.recorder.stop(); state.recorder = null; }
+    } finally { state.running = false; els.start.disabled = !state.file && !state.sourceUrl; els.stop.disabled = true; if (state.mediaStream) state.mediaStream.getTracks().forEach(t => t.stop()); state.mediaStream = null; if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop(); state.recorder = null; }
   }
   els.start.addEventListener("click", () => startProcessing(false));
-  els.stop.addEventListener("click", () => { state.cancelled = true; setLive("正在安全停止並保存進度…"); if (state.recorder?.state !== "inactive") state.recorder.stop(); });
+  els.stop.addEventListener("click", () => { state.cancelled = true; setLive("正在安全停止並保存進度…"); if (state.recorder && state.recorder.state !== "inactive") state.recorder.stop(); });
 
   async function buildOutline() {
     const joined = state.records.map(r => `[${formatTime(r.start)}] ${r.speaker ? `${r.speaker}: ` : ""}${r.text}`).join("\n");
