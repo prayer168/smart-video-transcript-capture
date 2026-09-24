@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#07111f" />
+  <meta name="description" content="將影片轉成帶時間戳記的逐字稿、摘要與章節大綱。" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2307111f'/%3E%3Cpath d='M18 20h28v24H18z' fill='%2328d7c2' opacity='.18' stroke='%2328d7c2' stroke-width='3'/%3E%3Cpath d='M27 28l13 8-13 8z' fill='%2328d7c2'/%3E%3Cpath d='M15 51h34' stroke='%23a78bfa' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./styles.css" />
+  <title>智慧影片逐字稿</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">▶</div>
+      <div>
+        <p class="eyebrow">VIDEO TRANSCRIPT WORKSPACE</p>
+        <h1>智慧影片逐字稿</h1>
+      </div>
+    </div>
+    <div class="topbar-note"><span class="status-dot"></span>本機優先處理</div>
+  </header>
+
+  <main class="app-shell">
+    <section class="intro-row">
+      <div>
+        <p class="eyebrow accent">從影片開始，留下可搜尋的知識</p>
+        <h2>把一段影片，整理成逐字稿與重點大綱。</h2>
+        <p class="intro-copy">支援長影片分段辨識、失敗重試、時間戳記與多種下載格式。你的 API Key 僅在目前瀏覽器工作階段使用。</p>
+      </div>
+      <div class="flow-strip" aria-label="處理流程">
+        <span>匯入</span><b>→</b><span>分段</span><b>→</b><span>辨識</span><b>→</b><span>整理</span>
+      </div>
+    </section>
+
+    <div class="workspace-grid">
+      <aside class="control-column">
+        <section class="panel source-panel">
+          <div class="panel-heading"><div><p class="eyebrow">01 / SOURCE</p><h3>匯入影片</h3></div><span class="mini-badge">MP4 · MKV · MOV</span></div>
+          <div class="source-tabs" role="tablist" aria-label="影片來源">
+            <button class="source-tab active" type="button" data-source-tab="upload">上傳檔案</button>
+            <button class="source-tab" type="button" data-source-tab="url">影片網址</button>
+          </div>
+          <div class="source-view active" data-source-view="upload">
+            <label class="dropzone" id="dropzone" for="videoFile">
+              <input id="videoFile" type="file" accept="video/mp4,video/x-matroska,video/quicktime,video/x-msvideo,video/webm,.mp4,.mkv,.mov,.avi,.webm" />
+              <span class="drop-icon" aria-hidden="true">＋</span>
+              <strong>拖曳影片到這裡</strong>
+              <span>或點擊選擇本機檔案</span>
+              <small>支援 MP4、MKV、MOV、AVI、WEBM</small>
+            </label>
+          </div>
+          <div class="source-view" data-source-view="url">
+            <label class="field-label" for="videoUrl">影片網址</label>
+            <input id="videoUrl" class="text-input" type="url" placeholder="https://example.com/video.mp4" autocomplete="off" />
+            <p class="field-help">目前支援可直接播放或下載的影片檔網址。YouTube／一般網頁頁面網址需接後端下載器。</p>
+            <button id="loadUrlBtn" class="secondary-btn full-width" type="button">載入網址影片</button>
+          </div>
+          <div id="fileMeta" class="file-meta empty">尚未選擇影片</div>
+          <video id="videoPreview" class="video-preview" controls playsinline preload="metadata" hidden></video>
+        </section>
+
+        <section class="panel settings-panel">
+          <div class="panel-heading"><div><p class="eyebrow">02 / SETTINGS</p><h3>辨識設定</h3></div><span class="settings-icon">◌</span></div>
+          <div class="field-group">
+            <label class="field-label" for="language">影片語言</label>
+            <select id="language" class="text-input">
+              <option value="auto">自動偵測</option>
+              <option value="zh">繁體中文／中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+            </select>
+          </div>
+          <div class="mode-grid" role="radiogroup" aria-label="辨識模式">
+            <label class="mode-card selected"><input type="radio" name="mode" value="whisper" checked /><span class="mode-card-icon">✦</span><span><strong>Whisper 高精度</strong><small>適合影片檔與長影片</small></span></label>
+            <label class="mode-card"><input type="radio" name="mode" value="browser" /><span class="mode-card-icon">◉</span><span><strong>瀏覽器語音辨識</strong><small>即時麥克風辨識，免 API</small></span></label>
+          </div>
+          <div id="apiKeyGroup" class="field-group">
+            <label class="field-label" for="apiKey">OpenAI API Key <span class="optional">選填於本機</span></label>
+            <input id="apiKey" class="text-input" type="password" placeholder="sk-..." autocomplete="off" />
+            <p class="field-help">只存在目前頁面記憶體，不會寫入檔案或伺服器。</p>
+          </div>
+          <div class="two-col-fields">
+            <div class="field-group"><label class="field-label" for="chunkSeconds">分段秒數</label><input id="chunkSeconds" class="text-input" type="number" min="10" max="120" value="30" /></div>
+            <div class="field-group"><label class="field-label" for="retryCount">失敗重試</label><input id="retryCount" class="text-input" type="number" min="0" max="5" value="3" /></div>
+          </div>
+          <label class="toggle-row"><input id="speakerDiarization" type="checkbox" /><span class="toggle-ui"></span><span><strong>說話者辨識</strong><small>標示 Speaker 1、Speaker 2</small></span></label>
+          <label class="toggle-row"><input id="generateOutline" type="checkbox" checked /><span class="toggle-ui"></span><span><strong>產生摘要與大綱</strong><small>整理章節、關鍵字與教學重點</small></span></label>
+          <div class="action-row"><button id="startBtn" class="primary-btn" type="button" disabled>開始處理 <span>↗</span></button><button id="stopBtn" class="stop-btn" type="button" disabled>停止</button></div>
+          <div id="resumeCard" class="resume-card" hidden><div><strong>找到未完成工作</strong><p id="resumeText">可以從上次完成的片段繼續。</p></div><div class="resume-actions"><button id="resumeBtn" class="small-primary" type="button">繼續</button><button id="clearResumeBtn" class="small-ghost" type="button">清除</button></div></div>
+        </section>
+      </aside>
+
+      <section class="result-column">
+        <section class="panel status-panel">
+          <div class="panel-heading"><div><p class="eyebrow">03 / PROCESS</p><h3>處理進度</h3></div><span id="overallStatus" class="status-pill idle">等待影片</span></div>
+          <div class="progress-track"><span id="overallProgress"></span></div>
+          <div class="process-grid">
+            <div class="process-step" data-step="ingest"><span class="step-num">01</span><div><strong>取得影片</strong><small id="ingestDetail">等待來源</small></div><span class="step-state">○</span></div>
+            <div class="process-step" data-step="audio"><span class="step-num">02</span><div><strong>擷取音訊</strong><small id="audioDetail">尚未開始</small></div><span class="step-state">○</span></div>
+            <div class="process-step" data-step="transcribe"><span class="step-num">03</span><div><strong>語音辨識</strong><small id="transcribeDetail">尚未開始</small></div><span class="step-state">○</span></div>
+            <div class="process-step" data-step="outline"><span class="step-num">04</span><div><strong>生成大綱</strong><small id="outlineDetail">尚未開始</small></div><span class="step-state">○</span></div>
+          </div>
+          <div class="live-status"><span class="live-dot"></span><span id="liveStatus">準備好接收影片</span><span id="segmentStatus" class="segment-status">—</span></div>
+          <div id="errorLog" class="error-log" hidden></div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="panel-heading result-heading"><div><p class="eyebrow">04 / RESULTS</p><h3>整理結果</h3></div><div id="downloadGroup" class="download-group" hidden><button class="download-btn" data-download="txt">TXT</button><button class="download-btn" data-download="md">MD</button><button class="download-btn" data-download="srt">SRT</button><button class="download-btn" data-download="vtt">VTT</button><button class="download-btn" data-download="json">JSON</button></div></div>
+          <div class="result-tabs" role="tablist" aria-label="結果分頁">
+            <button class="result-tab active" type="button" data-result-tab="transcript">逐字稿 <span id="transcriptCount">0 段</span></button>
+            <button class="result-tab" type="button" data-result-tab="summary">摘要</button>
+            <button class="result-tab" type="button" data-result-tab="outline">章節大綱</button>
+            <button class="result-tab" type="button" data-result-tab="keywords">關鍵字</button>
+          </div>
+          <div class="result-view active" data-result-view="transcript"><div id="transcriptEmpty" class="empty-result"><div class="empty-orbit">✦</div><h4>你的逐字稿會出現在這裡</h4><p>匯入影片後，系統會保留每個片段的時間位置。</p></div><div id="transcriptList" class="transcript-list" hidden></div></div>
+          <div class="result-view" data-result-view="summary"><div id="summaryContent" class="rich-result empty-copy">完成影片辨識後，這裡會顯示摘要。</div></div>
+          <div class="result-view" data-result-view="outline"><div id="outlineContent" class="outline-list empty-copy">完成影片辨識後，這裡會顯示章節大綱。</div></div>
+          <div class="result-view" data-result-view="keywords"><div id="keywordsContent" class="keyword-list empty-copy">完成影片辨識後，這裡會顯示關鍵字。</div></div>
+        </section>
+      </section>
+    </div>
+    <footer class="footer-note"><span>提示：瀏覽器語音辨識模式使用麥克風；要把影片音訊分段送入 Whisper，請選擇高精度模式。</span><span>智慧影片逐字稿 · MVP</span></footer>
+  </main>
+  <script src="./app.js"></script>
+</body>
+</html>
